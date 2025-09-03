@@ -1,0 +1,87 @@
+# server init
+curl -sfL https://get.k3s.io | sh -s - --cluster-init --disable traefik --disable servicelb --disable local-storage --docker --write-kubeconfig-mode 644 --tls-san 192.168.101.80
+# server init other tls-san
+curl -sfL https://get.k3s.io | sh -s - --cluster-init  --disable traefik --disable servicelb --disable local-storage --docker --write-kubeconfig-mode 644 --tls-san remote5.vpnmurahjogja.my.id
+
+# server 
+curl -sfL https://get.k3s.io | sh -s - server --server https://192.168.101.41:6443 --disable traefik --disable servicelb --disable local-storage --docker --tls-san 192.168.101.80
+# server other tls-san
+curl -sfL https://get.k3s.io | sh -s - server --server https://192.168.101.41:6443 --disable traefik --disable servicelb --disable local-storage --docker --tls-san remote5.vpnmurahjogja.my.id
+
+# worker
+curl -sfL https://get.k3s.io | sh -s - agent --docker --server https://192.168.101.41:6443
+
+-----------------------------------------
+
+# /etc/haproxy/haproxy.cfg
+
+frontend k3s-frontend
+    bind *:6443
+    mode tcp
+    option tcplog
+    default_backend k3s-backend
+
+backend k3s-backend
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    default-server inter 10s downinter 5s
+    server server-1 192.168.101.41:6443 check
+    server server-2 192.168.101.42:6443 check
+
+
+# /etc/keepalived/keepalived.conf 1
+
+global_defs {
+  enable_script_security
+  script_user root
+}
+
+vrrp_script chk_haproxy {
+    script 'killall -0 haproxy' # faster than pidof
+    interval 2
+}
+
+vrrp_instance haproxy-vip {
+    interface eth0
+    state MASTER
+    priority 200
+
+    virtual_router_id 51
+
+    virtual_ipaddress {
+        192.168.101.80/24
+    }
+
+    track_script {
+        chk_haproxy
+    }
+}
+
+# /etc/keepalived/keepalived.conf 2
+
+global_defs {
+  enable_script_security
+  script_user root
+}
+
+vrrp_script chk_haproxy {
+    script 'killall -0 haproxy' # faster than pidof
+    interval 2
+}
+
+vrrp_instance haproxy-vip {
+    interface eth0
+    state BACKUP
+    priority 100
+
+    virtual_router_id 51
+
+    virtual_ipaddress {
+        192.168.101.80/24
+    }
+
+    track_script {
+        chk_haproxy
+    }
+}
